@@ -39,7 +39,7 @@ export const getPoolsByProfitability = async (
 
       const percentageOfPoolPerDollar = poolCurrentDay.totalValueLockedUSD.eq(0)
         ? Big(0)
-        : Big(100).div(poolCurrentDay.totalValueLockedUSD).div(100);
+        : Big(100).div(poolCurrentDay.totalValueLockedUSD);
 
       const earningsPerDollar =
         percentageOfPoolPerDollar.mul(currentDayFeesInUSD);
