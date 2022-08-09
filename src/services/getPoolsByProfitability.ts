@@ -4,7 +4,6 @@ import { fetchBlockNearestToTimestamp } from "../subgraph/ethereum-blocks/fetchB
 import { fetchPoolsByBlock } from "../subgraph/uniswap/fetchPoolsByBlock";
 import { subgraphPoolsToPools } from "../subgraph/uniswap/subgraphPoolsToPools";
 import {
-  FormattedPool,
   Pool,
   PoolWithEarnings,
   SubgraphPool,
@@ -22,7 +21,7 @@ const emptyPoolWithEarnings: PoolWithEarnings = {
 export const getPoolsByProfitability = async (
   numberOfDaysAgo: number,
   noCache: boolean = false
-): Promise<FormattedPool[]> => {
+): Promise<PoolWithEarnings[]> => {
   const poolsPerDaysAgo: Record<number, Record<string, Pool>> = {};
 
   // Fetch an additional day's pools, to get non-cumulatives from furthest day back and +1 because today counts as day 0
@@ -112,25 +111,5 @@ export const getPoolsByProfitability = async (
       poolWithEarningsA.totalEarningsUSD.gt(poolWithEarningsB.totalEarningsUSD)
         ? -1
         : 0
-    )
-    .map((poolWithEarnings) => ({
-      ...poolWithEarnings,
-      totalEarningsUSD: poolWithEarnings.totalEarningsUSD.toString(),
-      dayData: Object.fromEntries(
-        Object.entries(poolWithEarnings.dayData).map(([daysAgo, earnings]) => [
-          `${Number(daysAgo) + 1} days ago`,
-          JSON.stringify(
-            {
-              earningsPerDollar: earnings.earningsPerDollar.toString(),
-              totalValueLockedUSD: earnings.totalValueLockedUSD.toString(),
-              feesUSD: earnings.feesUSD.toString(),
-              percentageOfPoolPerDollar:
-                earnings.percentageOfPoolPerDollar.toString(),
-            },
-            null,
-            2
-          ),
-        ])
-      ),
-    }));
+    );
 };

@@ -26,12 +26,3 @@ export interface PoolWithEarnings {
     };
   };
 }
-
-export interface FormattedPool {
-  id: string;
-  totalEarningsUSD: string;
-  blockNumber: number;
-  dayData: {
-    [daysAgo: number]: string;
-  };
-}
