@@ -34,10 +34,10 @@ Where `n` is the number of days ago to consider. Example:
 yarn start find 8
 ```
 
-5. To run the program without considering/using the Mongo cache:
+1. To run the program considering/using the Mongo cache:
 
 ```
-yarn start find 8 --no-cache
+yarn start find 8 --use-cache
 ```
 
 NOTE: to tear down MongoDB container run `yarn cache:down`
