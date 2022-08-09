@@ -20,7 +20,7 @@ const emptyPoolWithEarnings: PoolWithEarnings = {
 
 export const getPoolsByProfitability = async (
   numberOfDaysAgo: number,
-  noCache: boolean = false
+  useCache: boolean = false
 ): Promise<PoolWithEarnings[]> => {
   const poolsPerDaysAgo: Record<number, Record<string, Pool>> = {};
 
@@ -40,9 +40,7 @@ export const getPoolsByProfitability = async (
       const blockNumber = await fetchBlockNearestToTimestamp(timestamp);
       const hourTimestamp = Math.floor(timestamp / 3600);
 
-      if (noCache) {
-        subgraphPoolsDataInBlock = await fetchPoolsByBlock(blockNumber);
-      } else {
+      if (useCache) {
         // Get cached pools from DB from current hour
         const cachedPools = await getCachedPools(hourTimestamp);
   
@@ -52,6 +50,8 @@ export const getPoolsByProfitability = async (
           subgraphPoolsDataInBlock = await fetchPoolsByBlock(blockNumber);
           cachePools(subgraphPoolsDataInBlock, hourTimestamp);
         }
+      } else {
+        subgraphPoolsDataInBlock = await fetchPoolsByBlock(blockNumber);
       }
 
       const pools = subgraphPoolsToPools(subgraphPoolsDataInBlock, blockNumber);

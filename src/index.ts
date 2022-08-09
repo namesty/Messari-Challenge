@@ -14,14 +14,14 @@ program
   .command("find")
   .description("Find most profitable pool")
   .argument("<number>", "number of days ago")
-  .option("--no-cache", "ignore MongoDB hourly cache")
+  .option("--use-cache", "ignore MongoDB hourly cache")
   .action(async (num, options) => {
-    const noCache = options.noCache;
+    const useCache = options.useCache;
     const numberOfDaysAgo = Number(num);
     console.log(
       `Finding most profitable pool in the last ${numberOfDaysAgo} days...`
     );
-    const pools = await getPoolsByProfitability(numberOfDaysAgo, noCache);
+    const pools = await getPoolsByProfitability(numberOfDaysAgo, useCache);
     console.log(
       `\nMost Profitable Pool: ${pools[0].id} with a total earned fees of ${pools[0].totalEarningsUSD} USD per dollar provided`
     );
