@@ -18,5 +18,5 @@ export const fetchBlockNearestToTimestamp = async (
     }
   );
 
-  return parseInt(blocks[0].number);
+  return Number(blocks[0].number);
 };

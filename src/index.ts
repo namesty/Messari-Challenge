@@ -1,8 +1,22 @@
 import { getPoolsByProfitability } from "./services/getPoolsByProfitability";
+import { Command } from 'commander';
 
-export const execute = async () => {
-  const earnings = await getPoolsByProfitability(3)
-  console.log(earnings.find(e => e.id === "0x8ad599c3a0ff1de082011efddc58f1908eb6e6d8"))
-}
+const program = new Command();
 
-execute();
+program
+  .name('Uniswap V3 - Most Profitable Pool Finder')
+  .description('CLI to find most profitable pool in Uniswap V3, given a number of days ago')
+  .version('0.0.1');
+
+program.command('find')
+  .description('Find most profitable pool')
+  .argument('<number>', 'number of days ago')
+  .option('--no-cache', 'ignore MongoDB hourly cache')
+  .action(async (num, options) => {
+    const noCache = options.noCache;
+    const numberOfDaysAgo = Number(num);
+    const pools = await getPoolsByProfitability(numberOfDaysAgo, noCache);
+    console.log("\nMost Profitable Pool: " + JSON.stringify(pools[0], null, 2));
+  });
+
+program.parse(process.argv);

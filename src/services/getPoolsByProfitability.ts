@@ -1,71 +1,111 @@
 import Big from "big.js";
+import { cachePools, getCachedPools } from "../db/cache";
 import { fetchBlockNearestToTimestamp } from "../subgraph/ethereum-blocks/fetchBlockNearestToTimestamp";
 import { fetchPoolsByBlock } from "../subgraph/uniswap/fetchPoolsByBlock";
 import { subgraphPoolsToPools } from "../subgraph/uniswap/subgraphPoolsToPools";
-import { FormattedPool, Pool, PoolWithEarnings } from "../subgraph/uniswap/types";
+import {
+  FormattedPool,
+  Pool,
+  PoolWithEarnings,
+  SubgraphPool,
+} from "../subgraph/uniswap/types";
+import { chunkArrayInGroups } from "../utils/chunkArrayInGroups";
+import { makeIntArray } from "../utils/makeIntArray";
+
+const emptyPoolWithEarnings: PoolWithEarnings = {
+  id: "",
+  totalEarningsUSD: Big(0),
+  blockNumber: 0,
+  dayData: {},
+};
 
 export const getPoolsByProfitability = async (
-  numberOfDaysAgo: number
+  numberOfDaysAgo: number,
+  noCache: boolean = false
 ): Promise<FormattedPool[]> => {
-  const poolsPerDay: Record<number, Record<string, Pool>> = {};
+  const poolsPerDaysAgo: Record<number, Record<string, Pool>> = {};
 
-  // Fetch an additional day's pools, to get non-cumulatives from furthest day back
-  await Promise.all([...Array(numberOfDaysAgo + 1).keys()].map(async (daysAgo) => {
-    const daysInUnixSeconds = daysAgo * 86400
-    const nowInUnixSeconds = Math.floor(Date.now() / 1000)
-    const timestamp = nowInUnixSeconds - daysInUnixSeconds;
-    const blockNumber = await fetchBlockNearestToTimestamp(timestamp);
-    const subgraphPoolsDataInBlock = await fetchPoolsByBlock(
-      blockNumber
-    );
-    const pools = subgraphPoolsToPools(subgraphPoolsDataInBlock);
+  // Fetch an additional day's pools, to get non-cumulatives from furthest day back and +1 because today counts as day 0
+  const daysAgoToFetch = makeIntArray(numberOfDaysAgo + 2);
 
-    poolsPerDay[daysAgo] = Object.fromEntries(pools.map((p) => [p.id, p]));
-  }))
+  // Limit parallel fetching to 10 days at a time
+  const batchesOfDays = chunkArrayInGroups(daysAgoToFetch, 10);
+
+  for await (let daysBatch of batchesOfDays) {
+    await Promise.all(daysBatch.map(async (daysAgo) => {
+      let subgraphPoolsDataInBlock: SubgraphPool[];
+
+      const daysInUnixSeconds = daysAgo * 86400;
+      const nowInUnixSeconds = Math.floor(Date.now() / 1000);
+      const timestamp = nowInUnixSeconds - daysInUnixSeconds;
+      const blockNumber = await fetchBlockNearestToTimestamp(timestamp);
+      const hourTimestamp = Math.floor(timestamp / 3600);
+
+      if (noCache) {
+        subgraphPoolsDataInBlock = await fetchPoolsByBlock(blockNumber);
+      } else {
+        // Get cached pools from DB from current hour
+        const cachedPools = await getCachedPools(hourTimestamp);
+  
+        if (cachedPools) {
+          subgraphPoolsDataInBlock = cachedPools.pools;
+        } else {
+          subgraphPoolsDataInBlock = await fetchPoolsByBlock(blockNumber);
+          cachePools(subgraphPoolsDataInBlock, hourTimestamp);
+        }
+      }
+
+      const pools = subgraphPoolsToPools(subgraphPoolsDataInBlock, blockNumber);
+
+      poolsPerDaysAgo[daysAgo] = Object.fromEntries(
+        pools.map((p) => [p.id, p])
+      );
+    }))
+  }
 
   const earningsPerPool: Record<string, PoolWithEarnings> = {};
 
-  [...Array(numberOfDaysAgo).keys()].forEach((daysAgo) => {
-    const poolMapCurrentDay = poolsPerDay[daysAgo];
-    const poolMapDayBefore = poolsPerDay[daysAgo + 1];
+  makeIntArray(numberOfDaysAgo + 1).forEach((daysAgo) => {
+    const poolMapCurrentDay = poolsPerDaysAgo[daysAgo];
+    const poolMapDayBefore = poolsPerDaysAgo[daysAgo + 1];
 
     Object.values(poolMapCurrentDay).forEach((poolCurrentDay) => {
       const poolDayBefore = poolMapDayBefore[poolCurrentDay.id];
+      // Current day's fees = current day's cumulative fees - day before's cumulative fees
       const currentDayFeesInUSD = poolDayBefore
         ? Big(poolCurrentDay.cumulativeFeesUSD).sub(
             poolDayBefore.cumulativeFeesUSD
           )
         : Big(poolCurrentDay.cumulativeFeesUSD);
 
-      const percentageOfPoolPerDollar = poolCurrentDay.totalValueLockedUSD.eq(0)
-        ? Big(0)
-        : Big(100).div(poolCurrentDay.totalValueLockedUSD);
+      const percentageOfTVL = Big(100)
+        .div(poolCurrentDay.totalValueLockedUSD)
+        .div(100);
 
-      const earningsPerDollar =
-        percentageOfPoolPerDollar.mul(currentDayFeesInUSD);
+      // Earnings = current day's fees * percentage of TVL
+      const earningsPerDollar = percentageOfTVL.mul(currentDayFeesInUSD);
 
-      if (earningsPerPool[poolCurrentDay.id]) {
-        earningsPerPool[poolCurrentDay.id].totalEarningsUSD =
-          earningsPerPool[poolCurrentDay.id].totalEarningsUSD.add(
-            earningsPerDollar
-          );
-        earningsPerPool[poolCurrentDay.id].earningsPerDay = {
-          ...earningsPerPool[poolCurrentDay.id].earningsPerDay,
-          [daysAgo]: earningsPerDollar,
-        };
-      } else {
-        earningsPerPool[poolCurrentDay.id] = {
-          id: poolCurrentDay.id,
-          totalEarningsUSD: earningsPerDollar,
-          totalValueLockedUSD: poolCurrentDay.totalValueLockedUSD,
-          feesUSD: currentDayFeesInUSD,
-          earningsPerDay: {
-            [daysAgo]: earningsPerDollar,
-          },
-        };
+      if (!earningsPerPool[poolCurrentDay.id]) {
+        // If empty, initialize with empty pool with earnings
+        earningsPerPool[poolCurrentDay.id] = emptyPoolWithEarnings;
       }
+
+      earningsPerPool[poolCurrentDay.id] = {
+        id: poolCurrentDay.id,
+        blockNumber: poolCurrentDay.blockNumber,
+        totalEarningsUSD: earningsPerDollar,
+        dayData: {
+          ...earningsPerPool[poolCurrentDay.id].dayData,
+          [daysAgo]: {
+            earningsPerDollar,
+            totalValueLockedUSD: poolCurrentDay.totalValueLockedUSD,
+            feesUSD: currentDayFeesInUSD,
+            percentageOfPoolPerDollar: percentageOfTVL,
+          },
+        },
+      };
     });
-  })
+  });
 
   return Object.values(earningsPerPool)
     .sort((poolWithEarningsA, poolWithEarningsB) =>
@@ -75,17 +115,22 @@ export const getPoolsByProfitability = async (
     )
     .map((poolWithEarnings) => ({
       ...poolWithEarnings,
-      feesUSD: poolWithEarnings.feesUSD.toString(),
-      totalValueLockedUSD: poolWithEarnings.totalValueLockedUSD.toString(),
       totalEarningsUSD: poolWithEarnings.totalEarningsUSD.toString(),
-      earningsPerDay: Object.fromEntries(
-        Object.entries(poolWithEarnings.earningsPerDay).map(
-          ([daysAgo, earnings]) => [daysAgo, earnings.toString()]
-        )
+      dayData: Object.fromEntries(
+        Object.entries(poolWithEarnings.dayData).map(([daysAgo, earnings]) => [
+          `${Number(daysAgo) + 1} days ago`,
+          JSON.stringify(
+            {
+              earningsPerDollar: earnings.earningsPerDollar.toString(),
+              totalValueLockedUSD: earnings.totalValueLockedUSD.toString(),
+              feesUSD: earnings.feesUSD.toString(),
+              percentageOfPoolPerDollar:
+                earnings.percentageOfPoolPerDollar.toString(),
+            },
+            null,
+            2
+          ),
+        ])
       ),
-      apr: poolWithEarnings.totalValueLockedUSD.eq(0) ? "0" : poolWithEarnings.feesUSD
-        .div(poolWithEarnings.totalValueLockedUSD)
-        .mul(36500)
-        .toString(),
     }));
 };

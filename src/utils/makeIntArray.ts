@@ -1,0 +1,1 @@
+export const makeIntArray = (length: number): number[] => [...Array(length).keys()];

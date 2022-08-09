@@ -10,25 +10,28 @@ export interface Pool {
   id: string;
   cumulativeFeesUSD: Big;
   totalValueLockedUSD: Big;
+  blockNumber: number;
 }
 
 export interface PoolWithEarnings {
   id: string;
-  feesUSD: Big;
-  totalValueLockedUSD: Big;
   totalEarningsUSD: Big;
-  earningsPerDay: {
-    [daysAgo: number]: Big;
+  blockNumber: number;
+  dayData: {
+    [daysAgo: number]: {
+      earningsPerDollar: Big;
+      totalValueLockedUSD: Big;
+      feesUSD: Big;
+      percentageOfPoolPerDollar: Big;
+    };
   };
 }
 
 export interface FormattedPool {
   id: string;
-  feesUSD: string;
-  totalValueLockedUSD: string;
   totalEarningsUSD: string;
-  earningsPerDay: {
+  blockNumber: number;
+  dayData: {
     [daysAgo: number]: string;
   };
-  apr: string;
 }
